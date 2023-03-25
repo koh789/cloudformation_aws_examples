@@ -7,10 +7,8 @@ help: ## help you can see the list of tasks with `make help`.
 ##                  for build, deploy                      ##
 #############################################################
 DOCKER_PATH=./build/package/Dockerfile
-PROJECT_NAME=sample-aws-batch
+PROJECT_NAME=sample-ecs-executor
 IMG_VER=latest
-TEMPLATE_S3_PREFIX=$(PROJECT_NAME)
-
 
 .PHONY: ecr-cfn-deploy
 ecr-cfn-deploy: ## ecr cfn deploy. used to create an ECR for the first time or to modify an ECR definition [ args: CFN_DEPLOY_ROLE_ARN ]
@@ -20,7 +18,6 @@ ecr-cfn-deploy: ## ecr cfn deploy. used to create an ECR for the first time or t
 			--no-fail-on-empty-changeset \
 			--role-arn $(CFN_DEPLOY_ROLE_ARN) \
 			--tags "Name=$(PROJECT_NAME)-ecr-stack" "Group=$(PROJECT_NAME)"
-
 
 .PHONY: docker-build
 docker-build: ## docker build.  [ args: DOCKER_IMG, IMG_VER ]
@@ -33,15 +30,10 @@ docker-deploy: ## docker build, deploy. [ args: DOCKER_IMG, IMG_VER ]
 	docker tag $(DOCKER_IMG)/$(PROJECT_NAME):$(IMG_VER) $(DOCKER_IMG)/$(PROJECT_NAME):$(IMG_VER)
 	docker push $(DOCKER_IMG)/$(PROJECT_NAME):$(IMG_VER)
 
-.PHONY: batch-cfn-deploy
-batch-cfn-deploy: ## batch cfn deploy. s3Bucket for package processing before deploy. [ args: TEMPLATE_S3_BUCKET, CFN_DEPLOY_ROLE_ARN, VPC_ID, SUBNET_IDS, IMG_VER ]
-	aws cloudformation package \
-		--template-file cfn/batch.yml \
-		--s3-bucket $(TEMPLATE_S3_BUCKET) \
-		--s3-prefix $(TEMPLATE_S3_PREFIX)  \
-		--output-template-file tmp.yml
+.PHONY: ecs-cfn-deploy
+ecs-cfn-deploy: ## ecs cfn deploy. s3Bucket for package processing before deploy. [ args: TEMPLATE_S3_BUCKET, CFN_DEPLOY_ROLE_ARN, VPC_ID, SUBNET_IDS, IMG_VER ]
 	aws cloudformation deploy --capabilities CAPABILITY_NAMED_IAM \
-		--template tmp.yml \
+		--template cfn/task.yml \
 		--stack-name $(PROJECT_NAME) \
 		--no-fail-on-empty-changeset \
 		--role-arn $(CFN_DEPLOY_ROLE_ARN) \
