@@ -1,0 +1,153 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "ecr for sample aws batch"
+
+Parameters:
+  VpcId:
+    Type: String
+  SubnetIds:
+    Type: CommaDelimitedList
+  ImgVer:
+    Type: String
+    Default: latest
+  # ---------------------- not required -------------------------
+  ProjectName:
+    Type: String
+    Default: "sample-aws-batch"
+
+
+Resources:
+  # -----------------------------------------------------------
+  #                        Role
+  # -----------------------------------------------------------
+  BatchServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-service-role
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "batch.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-service-role
+        - Key: Group
+          Value: !Sub ${ProjectName}
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-ecs-task-execution-role
+      ManagedPolicyArns:
+        - !Sub "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "ecs-tasks.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-ecs-task-execution-role
+        - Key: Group
+          Value: !Sub ${ProjectName}
+  BatchServiceEventTargetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-service-event-target-role
+      ManagedPolicyArns:
+        - !Sub "arn:aws:iam::aws:policy/service-role/AWSBatchServiceEventTargetRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "events.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-service-event-target-role
+        - Key: Group
+          Value: !Sub ${ProjectName}
+  # -----------------------------------------------------------
+  #                     Compute Environments
+  # -----------------------------------------------------------
+  ComputeEnvSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-compute-sg
+      GroupDescription: !Sub ${ProjectName}-compute-sg
+      VpcId:
+        Ref: VpcId
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-compute-sg
+        - Key: Group
+          Value: !Sub ${ProjectName}
+
+  ComputeEnvironment:
+    Type: AWS::Batch::ComputeEnvironment
+    Properties:
+      Type: MANAGED
+      ServiceRole: !GetAtt "BatchServiceRole.Arn"
+      ComputeEnvironmentName: !Sub "${ProjectName}-compute-environment"
+      ComputeResources:
+        MaxvCpus: 256
+        SecurityGroupIds:
+          - !Sub "${ComputeEnvSecurityGroup.GroupId}"
+        Type: FARGATE
+        Subnets:
+          Ref: SubnetIds
+      State: ENABLED
+      Tags:
+        Name: !Sub ${ProjectName}-compute-environment
+        Group: !Sub ${ProjectName}
+
+  # -----------------------------------------------------------
+  #                          Job Queues
+  # -----------------------------------------------------------
+  JobQueue:
+    Type: AWS::Batch::JobQueue
+    Properties:
+      ComputeEnvironmentOrder:
+        - Order: 1
+          ComputeEnvironment:
+            Ref: ComputeEnvironment
+      State: ENABLED
+      Priority: 1
+      JobQueueName: !Sub ${ProjectName}-job-queue
+
+  JobDefinitions:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./batch_job_def.yml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        ImgVer: !Ref ImgVer
+        ECSTaskExecutionRole: !GetAtt ECSTaskExecutionRole.Arn
+  # -----------------------------------------------------------
+  #                          Job Events
+  # -----------------------------------------------------------
+  EventsAll:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub ${ProjectName}-job
+      ScheduleExpression: cron(00 16 * * ? *)
+      State: ENABLED
+      Targets:
+        - Id: !Sub ${ProjectName}-job
+          Arn: !Ref JobQueue
+          RoleArn: !GetAtt BatchServiceEventTargetRole.Arn
+          BatchParameters:
+            JobName: !Sub ${ProjectName}-job
+            JobDefinition: !GetAtt JobDefinitions.Outputs.SampleJobDefinition
