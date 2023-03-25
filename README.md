@@ -1,1 +1,3 @@
-# cloudformation_aws_exmaples
+# cloudformation_aws_examples
+
+Example of aws configuration using cloudforamtion
