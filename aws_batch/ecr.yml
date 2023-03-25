@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "ecr for sample aws batch"
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: "sample-aws-batch"
+
+Resources:
+  # ------------------------ ECR ------------------------
+  EcrRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${ProjectName}"
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countNumber": 1,
+                  "countUnit": "days"
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-ecr
+        - Key: Group
+          Value: !Sub ${ProjectName}
+  # register ECRRepositoryUri as SSM Parameter
+  ECRRepositoryUri:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub ${ProjectName}-ecr-repository-uri
+      Type: String
+      Value: !GetAtt EcrRepository.RepositoryUri

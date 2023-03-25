@@ -1,0 +1,43 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: job definition for sample aws batch
+
+Parameters:
+  ProjectName:
+    Type: String
+  ImgVer:
+    Type: String
+    Default: latest
+  ECSTaskExecutionRole:
+    Type: String
+
+Resources:
+  # -----------------------------------------------------------
+  #                          Job Definition
+  # -----------------------------------------------------------
+  SampleJobDefinition:
+    Type: AWS::Batch::JobDefinition
+    Properties:
+      JobDefinitionName: !Sub ${ProjectName}-job
+      Type: container
+      Parameters:
+        Param: "-"
+      ContainerProperties:
+        Image: !Sub '{{resolve:ssm:${ProjectName}-ecr-repository-uri}}:${ImgVer}'
+        Command:
+          - Ref::Param
+        NetworkConfiguration:
+          AssignPublicIp: ENABLED
+        ResourceRequirements:
+          - Type: VCPU
+            Value: 1
+          - Type: MEMORY
+            Value: 3072
+        ExecutionRoleArn: !Sub ${ECSTaskExecutionRole}
+      PlatformCapabilities:
+        - FARGATE
+      RetryStrategy:
+        Attempts: 1
+      PropagateTags: true
+Outputs:
+  SampleJobDefinition:
+    Value: !Ref SampleJobDefinition
