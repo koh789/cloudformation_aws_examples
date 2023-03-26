@@ -1,0 +1,192 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "ecs for api server"
+
+Parameters:
+  Env:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - stg
+      - prd
+  ImgVer:
+    Type: String
+    Default: latest
+  AllowIpAddress:
+    Type: String
+  VpcId:
+    Type: String
+  SubnetIds:
+    Type: CommaDelimitedList
+  ClusterName:
+    Type: String
+  ALBCertificateArn:
+    Type: String
+  Region:
+    Type: String
+    Default: ap-northeast-1
+  # ---------------------- not required -------------------------
+  ServiceName:
+    Type: String
+    Default: "sample"
+  ProjectName:
+    Type: String
+    Default: "ecs-api"  
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${ServiceName}-${Env}-${ProjectName}"
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-ecs-task-execution-role
+      ManagedPolicyArns:
+        - !Sub "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "ecs-tasks.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-ecs-task-execution-role"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VpcId
+      GroupName: !Sub "${ServiceName}-${Env}-${ProjectName}-alb-sg"
+      GroupDescription: !Sub "${ServiceName}-${Env}-${ProjectName}-alb-sg"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          Description: allow ip address
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref AllowIpAddress
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-alb-sg"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+
+  ALBBackendSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VpcId
+      GroupName: !Sub "${ServiceName}-${Env}-${ProjectName}-alb-backend-sg"
+      GroupDescription: !Sub "${ServiceName}-${Env}-${ProjectName}-alb-backend-sg"
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          Description: allow
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-alb-backend-sg"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${ServiceName}-${Env}-${ProjectName}-alb"
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Subnets:
+        Ref: SubnetIds
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-alb"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${ServiceName}-${Env}-${ProjectName}-tg"
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 80
+      TargetType: ip
+      HealthCheckPath: /system/health_check
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-tg"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Protocol: HTTPS
+      Port: 443
+      SslPolicy: ELBSecurityPolicy-2016-08
+      Certificates:
+        - CertificateArn: !Ref ALBCertificateArn
+      DefaultActions:
+        - TargetGroupArn: !Ref ALBTargetGroup
+          Type: forward
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      NetworkMode: awsvpc
+      Cpu: 1024
+      Memory: 2048
+      ExecutionRoleArn: !GetAtt "ECSTaskExecutionRole.Arn"
+      Family: !Sub "${ServiceName}-${Env}-${ProjectName}"
+      RequiresCompatibilities:
+        - FARGATE
+      ContainerDefinitions:
+        - Image: !Sub '{{resolve:ssm:${ServiceName}-${Env}-${ProjectName}-ecr-repository-uri}}:${ImgVer}'
+          Name: !Sub "${ServiceName}-${Env}-${ProjectName}-server-container"
+          PortMappings:
+            - ContainerPort: 80
+              HostPort: 80
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/ecs/${ServiceName}-${Env}-${ProjectName}"
+              awslogs-region: ${Region}
+              awslogs-stream-prefix: ecs
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-task"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - ALBListener
+    Properties:
+      Cluster: !Ref ClusterName
+      ServiceName: !Sub "${ServiceName}-${Env}-${ProjectName}-service"
+      DesiredCount: 1
+      LaunchType: FARGATE
+      LoadBalancers:
+        - ContainerName: !Sub "${ServiceName}-${Env}-${ProjectName}-server-container"
+          ContainerPort: 80
+          TargetGroupArn: !Ref ALBTargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          SecurityGroups:
+            - !Ref ALBBackendSecurityGroup
+          Subnets:
+            Ref: SubnetIds
+          AssignPublicIp: ENABLED
+      TaskDefinition: !Ref TaskDefinition
+      EnableECSManagedTags: true
+      PropagateTags: TASK_DEFINITION
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-service"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
