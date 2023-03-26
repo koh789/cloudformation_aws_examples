@@ -102,3 +102,13 @@ make ecr-cfn-deploy \
       ENV=stg \
 
 ```
+
+The above command will create the following resources
+
+* ECR Repository
+* LogGroup
+* IAM Role
+    * execution role
+    * events role
+* Task definitions
+* Events rule (Event Bridge)
