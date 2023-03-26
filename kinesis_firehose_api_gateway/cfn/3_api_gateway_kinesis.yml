@@ -1,0 +1,514 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Streaming data from the APIGateway to the firehose via the mapping template.
+
+Parameters:
+  Env:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - stg
+      - prd
+  S3KeyArn:
+    Type: String
+  AllowIpAddressList:
+    Type: CommaDelimitedList
+  BaseApiKey:
+    Type: String
+  Region:
+    Type: String
+    Default: "ap-northeast-1"
+  # not required
+  ServiceName:
+    Type: String
+    Default: "sample"
+  ProjectName:
+    Type: String
+    Default: "kinesis-firehose"
+  S3DirEventLog:
+    Type: String
+    Default: "event_log"
+  ApiGatewayStage:
+    Type: String
+    Default: "api"
+
+Resources:
+  ## -------------  role -------------
+  ApiGatewayIntegrationRequestRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ServiceName}-${Env}-${ProjectName}-api-gateway-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "apigateway.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        - PolicyName: !Sub "${ServiceName}-${Env}-${ProjectName}-api-gateway-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - firehose:PutRecord
+                Resource: "*"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-api-gateway-role"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+  FirehoseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ServiceName}-${Env}-${ProjectName}-firehose-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "firehose.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        - PolicyName: !Sub "${ServiceName}-${Env}-${ProjectName}-firehose-role"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:AbortMultipartUpload
+                  - s3:GetBucketLocation
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                  - s3:PutObject
+                Resource:
+                  - !Sub "{{resolve:ssm:${ServiceName}-${Env}-${ProjectName}-S3FirehoseArn}}"
+                  - !Sub "{{resolve:ssm:${ServiceName}-${Env}-${ProjectName}-S3FirehoseArn}}/*"
+              - Effect: Allow
+                Action:
+                  - glue:GetTable
+                  - glue:GetTableVersion
+                  - glue:GetTableVersions
+                Resource:
+                  - "*"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-firehose-role"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+  ## ------------- Cloudwatch log -------------
+  # Firehose logs
+  FirehoseLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/kinesisfirehose/${ServiceName}-${Env}-${ProjectName}-firehose"
+  FirehoseLogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref FirehoseLogGroup
+      LogStreamName: "S3Delivery"
+    DependsOn:
+      - FirehoseLogGroup
+  ## ------------- Firehose -------------
+  FirehoseEventLog:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      DeliveryStreamEncryptionConfigurationInput:
+        KeyType: AWS_OWNED_CMK
+      DeliveryStreamName: !Sub "${ServiceName}-${Env}-${ProjectName}-${S3DirEventLog}"
+      DeliveryStreamType: DirectPut                                                          # Replacement
+      ExtendedS3DestinationConfiguration:
+        RoleARN: !GetAtt FirehoseRole.Arn
+        BucketARN: !Sub "{{resolve:ssm:${ServiceName}-${Env}-${ProjectName}-S3FirehoseArn}}"
+        Prefix: !Sub "${S3DirEventLog}/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/"
+        ErrorOutputPrefix: !Sub "${S3DirEventLog}/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/!{firehose:error-output-type}"
+        BufferingHints:
+          SizeInMBs: 64
+          IntervalInSeconds: 60
+        CompressionFormat: UNCOMPRESSED # Record Format変換を使用する場合, 自動的にSnappy圧縮が選択されるため指定しない
+        EncryptionConfiguration:
+          KMSEncryptionConfig:
+            AWSKMSKeyARN: !Ref S3KeyArn
+        CloudWatchLoggingOptions:
+          Enabled: true
+          LogGroupName: !Ref FirehoseLogGroup
+          LogStreamName: !Ref FirehoseLogStream
+        S3BackupMode: Enabled
+        S3BackupConfiguration:
+          BucketARN: !Sub "{{resolve:ssm:${ServiceName}-${Env}-${ProjectName}-S3FirehoseArn}}"
+          RoleARN: !GetAtt "FirehoseRole.Arn"
+          Prefix: !Sub "backup/${S3DirEventLog}/"
+        DataFormatConversionConfiguration:
+          SchemaConfiguration:
+            CatalogId: !Ref AWS::AccountId
+            RoleARN: !GetAtt "FirehoseRole.Arn"
+            DatabaseName: !Sub "{{resolve:ssm:${ServiceName}-${Env}-${ProjectName}-GlueDatabaseName}}"
+            TableName: !Sub "{{resolve:ssm:${ServiceName}-${Env}-${ProjectName}-GlueTableName}}"
+            Region: !Ref "AWS::Region"
+            VersionId: LATEST
+          InputFormatConfiguration:
+            Deserializer:
+              OpenXJsonSerDe: { }
+          OutputFormatConfiguration:
+            Serializer:
+              ParquetSerDe: { }
+          Enabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-${S3DirEventLog}"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+    DependsOn:
+      - FirehoseLogStream
+
+  ## ------------- ApiGateway -------------
+  ApiGatewayRestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub "${ServiceName}-${Env}-${ProjectName}-api"
+      EndpointConfiguration:
+        Types:
+          - EDGE
+      Policy:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action:
+              - "execute-api:Invoke"
+            Resource:
+              - !Sub "execute-api:/${ApiGatewayStage}/GET/health_check"
+              - !Sub "execute-api:/${ApiGatewayStage}/GET/*/event_log"
+            Condition:
+              IpAddress:
+                aws:SourceIp: !Join [ ",", !Ref AllowIpAddressList ]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-api"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+  # ApiGateway Resource
+  ApiGatewayResourceHealthCheckVar:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Sub "${ApiGatewayRestApi.RootResourceId}"
+      PathPart: "health_check"
+      RestApiId: !Ref ApiGatewayRestApi
+  # ApiGateway Method
+  ApiGatewayMethodHealthCheckVarGet:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: GET
+      RequestParameters: { }
+      ResourceId: !Ref ApiGatewayResourceHealthCheckVar
+      RestApiId: !Ref ApiGatewayRestApi
+      ApiKeyRequired: true
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        RequestTemplates:
+          { application/json: "{ \"statusCode\": 200}" }
+        IntegrationResponses:
+          - StatusCode: 200
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels: { application/json: "Empty" }
+    DependsOn:
+      - ApiGatewayResourceHealthCheckVar
+  # ApiGateway Resource
+  ApiGatewayResourceAppTokenVar:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Sub "${ApiGatewayRestApi.RootResourceId}"
+      PathPart: "{cid}"
+      RestApiId: !Ref ApiGatewayRestApi
+  # ApiGateway Resource
+  ApiGatewayResourceEventLogVar:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref ApiGatewayResourceAppTokenVar
+      PathPart: "event_log"
+      RestApiId: !Ref "ApiGatewayRestApi"
+    DependsOn:
+      - ApiGatewayResourceAppTokenVar
+  # ApiGateway Method
+  ApiGatewayMethodEventLogCheckVarGet:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      HttpMethod: GET
+      RequestParameters: { }
+      ResourceId: !Ref ApiGatewayResourceEventLogVar
+      RestApiId: !Ref ApiGatewayRestApi
+      ApiKeyRequired: true
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:firehose:action/PutRecord"
+        Credentials: !GetAtt "ApiGatewayIntegrationRequestRole.Arn"
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        RequestTemplates:
+          application/json:
+            !Sub |
+            #set($params = $input.params().get('querystring'))
+            #set($paths = $input.params().get('path'))
+            #set($data = "{
+              #foreach($paramName in $params.keySet())
+                ""$paramName"": ""$util.escapeJavaScript($params.get($paramName))"",
+              #end
+              ""cid"": ""$util.escapeJavaScript($method.request.path.cid)""
+            }")
+            {
+                "DeliveryStreamName": "${FirehoseEventLog}",
+                "Record": {
+                    "Data": "$util.base64Encode($data)"
+                }
+            }
+        IntegrationResponses:
+          - StatusCode: 200
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels: { application/json: "Empty" }
+    DependsOn:
+      - ApiGatewayResourceEventLogVar
+
+  # ApiGateway access logs
+  ApiGatewayAccessLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Sub "/aws/apigateway/${ServiceName}-${Env}-${ProjectName}-api-access"
+    DependsOn:
+      - ApiGatewayRestApi
+  # ApiGateway deployment
+  ApiGatewayDeployment:
+    Type: "AWS::ApiGateway::Deployment"
+    Properties:
+      RestApiId: !Ref "ApiGatewayRestApi"
+      StageName: !Ref "ApiGatewayStage"
+      StageDescription:
+        Description: !Sub "Stage - ${Env}"
+        LoggingLevel: INFO
+        MetricsEnabled: False
+        AccessLogSetting:
+          DestinationArn: !GetAtt "ApiGatewayAccessLogGroup.Arn"
+          Format: "{ \"requestId\":\"$context.requestId\", \"ip\": \"$context.identity.sourceIp\", \"caller\":\"$context.identity.caller\", \"user\":\"$context.identity.user\",\"requestTime\":\"$context.requestTime\", \"httpMethod\":\"$context.httpMethod\",\"resourcePath\":\"$context.resourcePath\", \"status\":\"$context.status\",\"protocol\":\"$context.protocol\", \"responseLength\":\"$context.responseLength\" }"
+        Tags:
+          - Key: Name
+            Value: !Sub "${ServiceName}-${Env}-${ProjectName}-api"
+          - Key: Group
+            Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+    DependsOn:
+      - ApiGatewayResourceHealthCheckVar
+      - ApiGatewayMethodHealthCheckVarGet
+      - ApiGatewayResourceEventLogVar
+      - ApiGatewayMethodEventLogCheckVarGet
+      - ApiGatewayAccessLogGroup
+  ## ------------- Api key --------------
+  ApiGatewayRestApiBaseKey:
+    Type: AWS::ApiGateway::ApiKey
+    Properties:
+      Name: !Sub "${ServiceName}-${Env}-${ProjectName}-api-base-key" # Replacement
+      Enabled: true
+      Value: !Sub "${BaseApiKey}"
+      StageKeys:
+        - RestApiId: !Ref "ApiGatewayRestApi"
+          StageName: !Ref "ApiGatewayStage"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-api-key"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+    DependsOn:
+      - ApiGatewayDeployment
+  # ApiGateway usage plan
+  ApiGatewayRestApiBaseUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    Properties:
+      ApiStages:
+        - ApiId: !Ref "ApiGatewayRestApi"
+          Stage: !Ref "ApiGatewayStage"
+      UsagePlanName: !Sub "${ServiceName}-${Env}-${ProjectName}-usage-plan"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-usage-plan"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+    DependsOn:
+      - ApiGatewayRestApi
+      - ApiGatewayDeployment
+  # ApiGateway usage plan key
+  ApiGatewayRestApiBaseUsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    Properties:
+      KeyId: !Ref "ApiGatewayRestApiBaseKey"              # Replacement
+      KeyType: "API_KEY"                                  # Replacement
+      UsagePlanId: !Ref "ApiGatewayRestApiBaseUsagePlan"  # Replacement
+    DependsOn:
+      - ApiGatewayRestApiBaseUsagePlan
+  # --------------------- CloudWatch dashboard ------------------------
+  CloudWatchDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub ${ServiceName}-${Env}-${ProjectName}-dashbaord # Replacement
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "height": 15,
+              "width": 24,
+              "y": 0,
+              "x": 0,
+              "type": "explorer",
+              "properties": {
+                "metrics": [
+                  {
+                    "metricName": "4XXError",
+                    "resourceType": "AWS::ApiGateway::RestApi",
+                    "stat": "Sum"
+                  },
+                  {
+                    "metricName": "5XXError",
+                    "resourceType": "AWS::ApiGateway::RestApi",
+                    "stat": "Sum"
+                  },
+                  {
+                    "metricName": "CacheHitCount",
+                    "resourceType": "AWS::ApiGateway::RestApi",
+                    "stat": "Sum"
+                  },
+                  {
+                    "metricName": "CacheMissCount",
+                    "resourceType": "AWS::ApiGateway::RestApi",
+                    "stat": "Sum"
+                  },
+                  {
+                    "metricName": "Count",
+                    "resourceType": "AWS::ApiGateway::RestApi",
+                    "stat": "Sum"
+                  },
+                  {
+                    "metricName": "IntegrationLatency",
+                    "resourceType": "AWS::ApiGateway::RestApi",
+                    "stat": "Average"
+                  },
+                  {
+                    "metricName": "Latency",
+                    "resourceType": "AWS::ApiGateway::RestApi",
+                    "stat": "Average"
+                  }
+                ],
+                "labels": [
+                  {
+                    "key": "Name",
+                    "value": "${ServiceName}-${Env}-${ProjectName}-api}"
+                  }
+                ],
+                "widgetOptions": {
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "rowsPerPage": 50,
+                  "widgetsPerRow": 2
+                },
+                "period": 60,
+                "splitBy": "",
+                "region": "${Region}",
+                "title": "ApiGateway"
+              }
+            },
+            {
+              "type": "explorer",
+              "x": 0,
+              "y": 15,
+              "width": 24,
+              "height": 15,
+              "properties": {
+                "metrics": [
+                  {
+                    "metricName": "IncomingBytes",
+                    "resourceType": "AWS::KinesisFirehose::DeliveryStream",
+                    "stat": "Sum"
+                  },
+                  {
+                    "metricName": "IncomingRecords",
+                    "resourceType": "AWS::KinesisFirehose::DeliveryStream",
+                    "stat": "Sum"
+                  },
+                  {
+                    "metricName": "BackupToS3.Bytes",
+                    "resourceType": "AWS::KinesisFirehose::DeliveryStream",
+                    "stat": "Sum"
+                  },
+                  {
+                    "metricName": "BackupToS3.DataFreshness",
+                    "resourceType": "AWS::KinesisFirehose::DeliveryStream",
+                    "stat": "Average"
+                  },
+                  {
+                    "metricName": "BackupToS3.Records",
+                    "resourceType": "AWS::KinesisFirehose::DeliveryStream",
+                    "stat": "Sum"
+                  },
+                  {
+                    "metricName": "BackupToS3.Success",
+                    "resourceType": "AWS::KinesisFirehose::DeliveryStream",
+                    "stat": "Sum"
+                  },
+                  {
+                    "metricName": "DeliveryToS3.Bytes",
+                    "resourceType": "AWS::KinesisFirehose::DeliveryStream",
+                    "stat": "Sum"
+                  },
+                  {
+                    "metricName": "DeliveryToS3.DataFreshness",
+                    "resourceType": "AWS::KinesisFirehose::DeliveryStream",
+                    "stat": "Average"
+                  },
+                  {
+                    "metricName": "DeliveryToS3.Records",
+                    "resourceType": "AWS::KinesisFirehose::DeliveryStream",
+                    "stat": "Sum"
+                  },
+                  {
+                    "metricName": "DeliveryToS3.Success",
+                    "resourceType": "AWS::KinesisFirehose::DeliveryStream",
+                    "stat": "Sum"
+                  }
+                ],
+                "labels": [
+                  {
+                    "key": "Name",
+                    "value": "${FirehoseEventLog}"
+                  }
+                ],
+                "widgetOptions": {
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "rowsPerPage": 50,
+                  "widgetsPerRow": 2
+                },
+                "period": 300,
+                "splitBy": "",
+                "region": "${Region}",
+                "title": "Kinesis"
+              }
+            }
+          ]
+        }
+Outputs:
+  RestApiId: # used for api deploy in Makefile task
+    Value: !Ref "ApiGatewayRestApi"

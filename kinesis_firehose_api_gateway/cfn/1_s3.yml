@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: s3
+
+Parameters:
+  Env:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - stg
+      - prd
+  # not required
+  ServiceName:
+    Type: String
+    Default: "sample"
+  ProjectName:
+    Type: String
+    Default: "kinesis-firehose"
+
+
+Resources:
+  ## ------------- S3 -------------
+  S3Firehose:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Sub "${ServiceName}-${Env}-${ProjectName}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+  ## ------------- SSM -------------
+  S3FirehoseBucketNameSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${ServiceName}-${Env}-${ProjectName}-S3FirehoseBucketName"
+      Type: String
+      Value: !Ref S3Firehose
+  S3FirehoseArnSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${ServiceName}-${Env}-${ProjectName}-S3FirehoseArn"
+      Type: String
+      Value: !GetAtt "S3Firehose.Arn"

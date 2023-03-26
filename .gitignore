@@ -39,6 +39,8 @@ Desktop.ini
 tmp/**
 *.tmp
 *.bak
+*.bkp
+*.dtmp
 *.swp
 *~.nib
 .classpath
