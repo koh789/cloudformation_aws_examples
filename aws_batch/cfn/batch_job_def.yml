@@ -2,6 +2,10 @@ AWSTemplateFormatVersion: 2010-09-09
 Description: job definition for sample aws batch
 
 Parameters:
+  Env:
+    Type: String
+  ServiceName:
+    Type: String
   ProjectName:
     Type: String
   ImgVer:
@@ -17,12 +21,12 @@ Resources:
   SampleJobDefinition:
     Type: AWS::Batch::JobDefinition
     Properties:
-      JobDefinitionName: !Sub ${ProjectName}-job
+      JobDefinitionName: !Sub "${ServiceName}-${Env}-${ProjectName}-job"
       Type: container
       Parameters:
         Param: "-"
       ContainerProperties:
-        Image: !Sub '{{resolve:ssm:${ProjectName}-ecr-repository-uri}}:${ImgVer}'
+        Image: !Sub '{{resolve:ssm:${ServiceName}-${Env}-${ProjectName}-ecr-repository-uri}}:${ImgVer}'
         Command:
           - Ref::Param
         NetworkConfiguration:
@@ -32,7 +36,7 @@ Resources:
             Value: 1
           - Type: MEMORY
             Value: 3072
-        ExecutionRoleArn: !Sub ${ECSTaskExecutionRole}
+        ExecutionRoleArn: !Sub "${ECSTaskExecutionRole}"
       PlatformCapabilities:
         - FARGATE
       RetryStrategy:

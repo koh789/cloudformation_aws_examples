@@ -12,16 +12,16 @@ confirmation of make command.
 
 `make help`
 
-1. cloudformation deploy to create Elastic Container Registry.
+1. cloudformation deploy to create Elastic Container Registry. ENV can be selected from dev, stg, prd
 
 ```
-make ecr-cfn-deploy CFN_DEPLOY_ROLE_ARN=arn:aws:iam::${AccountId}:role/${ROLE_NAME}
+make ecr-cfn-deploy ENV=stg CFN_DEPLOY_ROLE_ARN=arn:aws:iam::${AccountId}:role/${ROLE_NAME}
 ```
 
 2. docker deploy
 
 ```
- make docker-deploy DOCKER_IMG=${AccountId}.dkr.ecr.${Region}.amazonaws.com IMG_VER=latest
+ make docker-deploy DOCKER_IMG=${AccountId}.dkr.ecr.${Region}.amazonaws.com ENV=stg IMG_VER=latest
 ```
 
 3. aws batch deploy. before executing the following command, please create an S3 Bucket for cloudformation package.
@@ -30,7 +30,8 @@ make ecr-cfn-deploy CFN_DEPLOY_ROLE_ARN=arn:aws:iam::${AccountId}:role/${ROLE_NA
 ```
  make batch-cfn-deploy \ 
       TEMPLATE_S3_BUCKET=${TEMPLATE_S3_BUCKET}
-      CFN_DEPLOY_ROLE_ARN=arn:aws:iam::${AccountId}:role/${ROLE_NAME} \ 
+      CFN_DEPLOY_ROLE_ARN=arn:aws:iam::${AccountId}:role/${ROLE_NAME} \
+      ENV=stg \ 
       VPC_ID=${VpcId}  \
       SUBNET_IDS="${SubnetId-A},${SubnetId-B}" \
       IMG_VER=${IMG_VER}

@@ -2,16 +2,26 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: "ecr for sample aws batch"
 
 Parameters:
+  Env:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - stg
+      - prd
+  ServiceName:
+    Type: String
+    Default: "sample"
   ProjectName:
     Type: String
-    Default: "sample-aws-batch"
+    Default: "aws-batch"
 
 Resources:
   # ------------------------ ECR ------------------------
   EcrRepository:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub "${ProjectName}"
+      RepositoryName: !Sub "${ServiceName}-${Env}-${ProjectName}"
       LifecyclePolicy:
         LifecyclePolicyText: |
           {
@@ -32,13 +42,13 @@ Resources:
           }
       Tags:
         - Key: Name
-          Value: !Sub ${ProjectName}-ecr
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-ecr"
         - Key: Group
-          Value: !Sub ${ProjectName}
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
   # register ECRRepositoryUri as SSM Parameter
   ECRRepositoryUri:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub ${ProjectName}-ecr-repository-uri
+      Name: !Sub "${ServiceName}-${Env}-${ProjectName}-ecr-repository-uri"
       Type: String
-      Value: !GetAtt EcrRepository.RepositoryUri
+      Value: !GetAtt "EcrRepository.RepositoryUri"
