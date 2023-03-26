@@ -49,7 +49,7 @@ batch-cfn-deploy: ## batch cfn deploy. s3Bucket for package processing before de
 		--stack-name $(SERVICE_PROJECT_NAME) \
 		--no-fail-on-empty-changeset \
 		--role-arn $(CFN_DEPLOY_ROLE_ARN) \
-		--parameter-overrides VpcId=$(VPC_ID) SubnetIds=$(SUBNET_IDS) ImgVer=$(IMG_VER)  \
+		--parameter-overrides VpcId=$(VPC_ID) SubnetIds=$(SUBNET_IDS) ImgVer=$(IMG_VER) Env=$(ENV) \
 		--tags "Name=$(PROJECT_NAME)-stack" "Group=$(PROJECT_NAME)"
 	@echo "remove tmp.yml.. "
 	rm -rf tmp.yml
