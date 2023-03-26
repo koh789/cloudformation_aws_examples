@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "ecs for task"
+
+Parameters:
+  VpcId:
+    Type: String
+  SubnetIds:
+    Type: CommaDelimitedList
+  ImgVer:
+    Type: String
+    Default: latest
+  ClusterArn:
+    Type: String
+  Env:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - stg
+      - prd
+  ServiceName:
+    Type: String
+    Default: "sample"
+  ProjectName:
+    Type: String
+    Default: "ecs-executor"
+  Region:
+    Type: String
+    Default: "ap-northeast-1"
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${ServiceName}-${Env}-${ProjectName}"
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-ecs-task-execution-role
+      ManagedPolicyArns:
+        - !Sub "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "ecs-tasks.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-execution-role"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+  BatchServiceEventTargetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ServiceName}-${Env}-${ProjectName}-service-event-target-role"
+      ManagedPolicyArns:
+        - !Sub "arn:aws:iam::aws:policy/service-role/AWSBatchServiceEventTargetRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "events.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-service-event-target-role"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      NetworkMode: awsvpc
+      Cpu: 4096
+      Memory: 8192
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      Family: !Sub "${ServiceName}-${Env}-${ProjectName}"
+      RequiresCompatibilities:
+        - FARGATE
+      ContainerDefinitions:
+        - Image: !Sub '{{resolve:ssm:${ServiceName}-${Env}-${ProjectName}-ecr-repository-uri}}:${ImgVer}'
+          Name: !Sub "${ServiceName}-${Env}-${ProjectName}-task"
+          Cpu: 4096
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/ecs/${ServiceName}-${Env}-${ProjectName}"
+              awslogs-region: !Sub "${Region}"
+              awslogs-stream-prefix: ecs
+      Tags:
+        - Key: Name
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}-task-definition"
+        - Key: Group
+          Value: !Sub "${ServiceName}-${Env}-${ProjectName}"
+  # -----------------------------------------------------------
+  #                          Job Events
+  # -----------------------------------------------------------
+  SampleTaskEvents:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${ServiceName}-${Env}-${ProjectName}-event"
+      ScheduleExpression: cron(00 16 * * ? *)
+      State: ENABLED
+      Targets:
+        - Id: !Sub "${ServiceName}-${Env}-${ProjectName}-job"
+          Arn: !Ref ClusterArn
+          RoleArn: !GetAtt "BatchServiceEventTargetRole.Arn"
+          EcsParameters:
+            TaskDefinitionArn: !Ref TaskDefinition
+            TaskCount: 1
+            LaunchType: FARGATE
+            NetworkConfiguration:
+              AwsVpcConfiguration:
+                AssignPublicIp:  ENABLED
+                Subnets:
+                  Ref: SubnetIds
