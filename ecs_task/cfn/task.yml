@@ -41,6 +41,26 @@ Resources:
           Value: !Sub "${ProjectName}-execution-role"
         - Key: Group
           Value: !Sub "${ProjectName}"
+  BatchServiceEventTargetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-service-event-target-role
+      ManagedPolicyArns:
+        - !Sub "arn:aws:iam::aws:policy/service-role/AWSBatchServiceEventTargetRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "events.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-service-event-target-role
+        - Key: Group
+          Value: !Sub ${ProjectName}
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -66,3 +86,25 @@ Resources:
           Value: !Sub "${ProjectName}-task-definition"
         - Key: Group
           Value: !Sub "${ProjectName}"
+  # -----------------------------------------------------------
+  #                          Job Events
+  # -----------------------------------------------------------
+  EventsAll:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub ${ProjectName}-job
+      ScheduleExpression: cron(00 16 * * ? *)
+      State: ENABLED
+      Targets:
+        - Id: !Sub ${ProjectName}-job
+          Arn: !Ref JobQueue
+          RoleArn: !GetAtt BatchServiceEventTargetRole.Arn
+          EcsParameters:
+            TaskDefinitionArn: !Ref TaskDefinition
+            TaskCount: 1
+            LaunchType: FARGATE
+            NetworkConfiguration:
+              AwsVpcConfiguration:
+                AssignPublicIp:  ENABLED
+                Subnets:
+                  Ref: SubnetIds
