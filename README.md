@@ -117,6 +117,74 @@ The above command will create the following resources
 * Task definitions
 * Events rule (Event Bridge)
 
+## ECS API Server
+
+[Definition file: ecs_api](./ecs_api)
+
+### QuickStart
+
+
+`cd ./ecs_api`
+
+confirmation of make command.
+
+`make help`
+
+1. cloudformation deploy to create Elastic Container Registry.
+
+```
+make ecr-cfn-deploy\ 
+    ENV=stg 
+    CFN_DEPLOY_ROLE_ARN=arn:aws:iam::${AccountId}:role/${RoleName}
+```
+
+2. go build
+
+```
+make build
+```
+
+3docker deploy
+
+```
+ make docker-deploy \  
+    DOCKER_IMG=${AccountId}.dkr.ecr.${Region}.amazonaws.com \
+    ENV=stg  \
+    IMG_VER=latest
+```
+
+4. ecs api deploy.
+    * create Cluster for VPC, Subnet, ECS before execution
+
+```
+ make ecs-cfn-deploy \ 
+      CFN_DEPLOY_ROLE_ARN=arn:aws:iam::${AccountId}:role/${RoleName} \
+      ENV=stg \
+      IMG_VER=${ImgVer} \
+      ALLOW_IP_ADDRESS=${ALLOW_IP_ADDRESS}\
+      VPC_ID=${VpcId} \
+      SUBNET_IDS="${SubnetId-A},${SubnetId-B}" \
+      CLUSTER_NAME=${ClusterName} \
+      ALB_CERTIFICATION_ARN=${ALBCertificateArn}\ 
+      REGION=${Region}
+```
+
+The above command will create the following resources
+
+* ECR Repository
+* LogGroup
+* IAM Role
+    * Execution role
+* Security group
+* ALB
+  * Load balancer
+  * Target group
+  * Listener
+* Task definitions
+* Service
+
+
+
 ## Kinesis Data Firehose and API Gateway
 
 [Definition file: kinesis_firehose_api_gateway](./kinesis_firehose_api_gateway)

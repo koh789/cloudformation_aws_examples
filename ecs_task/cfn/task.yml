@@ -79,7 +79,7 @@ Resources:
       NetworkMode: awsvpc
       Cpu: 4096
       Memory: 8192
-      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      ExecutionRoleArn: !GetAtt "ECSTaskExecutionRole.Arn"
       Family: !Sub "${ServiceName}-${Env}-${ProjectName}"
       RequiresCompatibilities:
         - FARGATE
