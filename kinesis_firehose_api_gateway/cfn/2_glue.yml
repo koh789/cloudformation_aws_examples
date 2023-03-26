@@ -1,0 +1,100 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: glue
+
+Parameters:
+  Env: #
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - stg
+      - prd
+  GlueDatabaseName:
+    Type: String
+    Default: "dev_realtime_events"
+  # not required
+  ServiceName:
+    Type: String
+    Default: "sample"
+  ProjectName:
+    Type: String
+    Default: "kinesis-firehose"
+  GlueTableNameEventLog:
+    Type: String
+    Default: "event_log"
+  S3DirEventLog:
+    Type: String
+    Default: "event_log"
+
+Resources:
+  ## ------------- Glue -------------
+  # Glue database
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Ref GlueDatabaseName
+
+  # Glue table
+  GlueTable:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref GlueDatabase
+      TableInput: # Replacement
+        Name: !Ref GlueTableNameEventLog
+        TableType: EXTERNAL_TABLE
+        Parameters:
+          has_encrypted_data: true
+          EXTERNAL: true
+        PartitionKeys:
+          - Name: year
+            Type: string
+          - Name: month
+            Type: string
+          - Name: day
+            Type: string
+        StorageDescriptor:
+          Columns:
+            - Name: uuid
+              Type: string
+            - Name: cid
+              Type: string
+            - Name: session
+              Type: string
+            - Name: tracker
+              Type: string
+            - Name: kind
+              Type: string
+            - Name: created_at
+              Type: timestamp
+            - Name: event_id
+              Type: string
+            - Name: event_name
+              Type: string
+          Location: !Sub
+            - "s3://${S3Bucket}/${S3Dir}"
+            - S3Bucket: !Sub "{{resolve:ssm:${ServiceName}-${Env}-${ProjectName}-S3FirehoseBucketName}}"
+              S3Dir: !Ref S3DirEventLog
+          InputFormat: org.apache.hadoop.mapred.TextInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe
+            Parameters:
+              serialization.format: '1'
+          BucketColumns: [ ]
+          SortColumns: [ ]
+  ## ------------- SSM -------------
+  GlueDatabaseNameSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${ServiceName}-${Env}-${ProjectName}-GlueDatabaseName"
+      Type: String
+      Value: !Ref "GlueDatabase"
+  GlueTableNameSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${ServiceName}-${Env}-${ProjectName}-GlueTableName"
+      Type: String
+      Value: !Ref "GlueTable"
