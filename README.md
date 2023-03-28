@@ -7,6 +7,9 @@ Example of aws configuration using cloudformation
 
 [Definition file: aws_batch](./aws_batch)
 
+![System outline](aws_batch/img/aws-batch.drawio.svg)
+
+
 ### QuickStart
 
 
@@ -122,6 +125,9 @@ The above command will create the following resources
 ## ECS API Server
 
 [Definition file: ecs_api](./ecs_api)
+
+![System outline](ecs_api/img/ecs-api.drawio.svg)
+
 
 ### QuickStart
 
