@@ -63,6 +63,8 @@ The above command will create the following resources
 
 [Definition file: ecs_task](./ecs_task)
 
+![System outline](ecs_task/img/ecs-task.drawio.svg)
+
 ### QuickStart
 
 
