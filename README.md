@@ -2,14 +2,21 @@
 
 Example of aws configuration using cloudformation
 
-## Kinesis Data Firehose and API Gateway
+## System outline
+
+![System outline](img/system_outline.drawio.svg)
+
+
+## By Application
+
+### Kinesis Data Firehose and API Gateway
 
 [Definition file: kinesis_firehose_api_gateway](./kinesis_firehose_api_gateway)
 
 ![System outline](kinesis_firehose_api_gateway/img/apigateway-to-firehose.drawio.svg)
 
 
-### Quick Start
+#### Quick Start
 
 `cd ./kinesis_firehose_api_gateway`
 
@@ -75,14 +82,14 @@ The above command will create the following resources
   * Usage plan
 * CloudWatch dashboard
 
-## AWS Batch
+### AWS Batch
 
 [Definition file: aws_batch](./aws_batch)
 
 ![System outline](aws_batch/img/aws-batch.drawio.svg)
 
 
-### QuickStart
+#### QuickStart
 
 
 `cd ./aws_batch`
@@ -134,13 +141,13 @@ The above command will create the following resources
 * Job definitions
 * Events rule (Event Bridge)
 
-## ECS task
+### ECS task
 
 [Definition file: ecs_task](./ecs_task)
 
 ![System outline](ecs_task/img/ecs-task.drawio.svg)
 
-### QuickStart
+#### QuickStart
 
 
 `cd ./ecs_task`
@@ -194,14 +201,14 @@ The above command will create the following resources
 * Task definitions
 * Events rule (Event Bridge)
 
-## ECS API Server
+### ECS API Server
 
 [Definition file: ecs_api](./ecs_api)
 
 ![System outline](ecs_api/img/ecs-api.drawio.svg)
 
 
-### QuickStart
+#### QuickStart
 
 
 `cd ./ecs_api`
